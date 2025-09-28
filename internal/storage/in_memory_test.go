@@ -2,6 +2,8 @@ package storage_test
 
 import (
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/Argentum88/godb/internal/storage"
@@ -61,5 +63,40 @@ func TestInMemoryKV_Get_NonExistentKey(t *testing.T) {
 	_, err := kv.Get([]byte("nonexistent"))
 	if !errors.Is(err, storage.ErrKeyNotFound) {
 		t.Fatalf("Expected error '%v', got '%v'", storage.ErrKeyNotFound, err)
+	}
+}
+
+func TestInMemoryKV_Concurrency(t *testing.T) {
+	t.Parallel()
+	kv := storage.NewInMemoryKV()
+	wg := new(sync.WaitGroup)
+	n := 100
+	for i := range n {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			key := fmt.Sprintf("key_%d", i)
+			value := fmt.Sprintf("value_%d", i)
+			kv.Set([]byte(key), []byte(value))
+
+			j := (i + 1) % n
+			readKey := fmt.Sprintf("key_%d", j)
+			kv.Get([]byte(readKey))
+		}(i)
+	}
+	wg.Wait()
+
+	for i := range n {
+		key := fmt.Sprintf("key_%d", i)
+		expectedValue := fmt.Sprintf("value_%d", i)
+
+		actualValue, err := kv.Get([]byte(key))
+		if err != nil {
+			t.Fatalf("Key %s should exist, but Get failed: %v", key, err)
+		}
+
+		if string(actualValue) != expectedValue {
+			t.Fatalf("For key %s, expected %s, but got %s", key, expectedValue, actualValue)
+		}
 	}
 }
