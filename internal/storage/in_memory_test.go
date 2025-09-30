@@ -11,7 +11,7 @@ import (
 
 func TestInMemoryKV_SetAndGet(t *testing.T) {
 	t.Parallel()
-	kv := storage.NewInMemoryKV()
+	kv := storage.NewInMemoryKVEngine()
 	err := kv.Set([]byte("key"), []byte("value"))
 	if err != nil {
 		t.Fatalf("Set failed: %v", err)
@@ -28,7 +28,7 @@ func TestInMemoryKV_SetAndGet(t *testing.T) {
 
 func TestInMemoryKV_Update(t *testing.T) {
 	t.Parallel()
-	kv := storage.NewInMemoryKV()
+	kv := storage.NewInMemoryKVEngine()
 	err := kv.Set([]byte("key"), []byte("value"))
 	if err != nil {
 		t.Fatalf("Set failed: %v", err)
@@ -59,7 +59,7 @@ func TestInMemoryKV_Update(t *testing.T) {
 
 func TestInMemoryKV_Get_NonExistentKey(t *testing.T) {
 	t.Parallel()
-	kv := storage.NewInMemoryKV()
+	kv := storage.NewInMemoryKVEngine()
 	_, err := kv.Get([]byte("nonexistent"))
 	if !errors.Is(err, storage.ErrKeyNotFound) {
 		t.Fatalf("Expected error '%v', got '%v'", storage.ErrKeyNotFound, err)
@@ -68,7 +68,7 @@ func TestInMemoryKV_Get_NonExistentKey(t *testing.T) {
 
 func TestInMemoryKV_Concurrency(t *testing.T) {
 	t.Parallel()
-	kv := storage.NewInMemoryKV()
+	kv := storage.NewInMemoryKVEngine()
 	wg := new(sync.WaitGroup)
 	n := 100
 	for i := range n {
