@@ -12,6 +12,6 @@ import (
 func main() {
 	inMemoryKVEngine := storage.NewInMemoryKVEngine()
 	kvExecutor := executor.NewKVExecutor(inMemoryKVEngine)
-	shell := shell.NewShell(kvExecutor)
-	shell.Run(context.Background(), os.Stdin, os.Stdout)
+	sh := shell.NewShell(kvExecutor)
+	sh.Run(context.Background(), os.Stdin, os.Stdout)
 }

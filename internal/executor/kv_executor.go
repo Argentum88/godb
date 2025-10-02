@@ -18,7 +18,7 @@ func NewKVExecutor(engine storage.Engine) *kvExecutor {
 func(e *kvExecutor) Execute(ctx context.Context, cmd string) (Result, error) {
 	fields := strings.Fields(cmd)
 	if len(fields) == 0 {
-		panic("empty command")
+		return Result{}, ErrInvalidCommandSyntax
 	}
 	op := fields[0]
 	switch op {
