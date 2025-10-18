@@ -1,7 +1,6 @@
 package page
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -24,6 +23,7 @@ type diskManager struct {
 	file     *os.File
 	nextPage PageID
 	mtx      sync.RWMutex
+	zeroPage []byte
 }
 
 func NewDiskManager(ctx context.Context, filePath string) (*diskManager, error) {
@@ -32,7 +32,7 @@ func NewDiskManager(ctx context.Context, filePath string) (*diskManager, error) 
 		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
 
-	dm := &diskManager{file: fd}
+	dm := &diskManager{file: fd, zeroPage: make([]byte, PageSize)}
 	fileSize, err := dm.getFileSize()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file size: %w", err)
@@ -52,8 +52,7 @@ func (dm *diskManager) AllocatePage(ctx context.Context) (PageID, error) {
 	defer dm.mtx.Unlock()
 
 	nextPage := dm.nextPage
-	bufWithZeroBytes := bytes.Repeat([]byte{0}, PageSize)
-	if err := dm.writePage(nextPage, bufWithZeroBytes); err != nil {
+	if err := dm.writePage(nextPage, dm.zeroPage); err != nil {
 		return 0, fmt.Errorf("failed to allocate page: %w", err)
 	}
 	dm.nextPage++
