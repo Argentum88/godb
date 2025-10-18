@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 )
 
 const PageSize = 4 * 1024 // 4KB
@@ -22,7 +23,7 @@ type Manager interface {
 
 type diskManager struct {
 	file    *os.File
-	nextPage PageID
+	nextPage atomic.Uint64
 	mtx  sync.Mutex
 }
 
@@ -42,7 +43,7 @@ func NewDiskManager(ctx context.Context, filePath string) (*diskManager, error) 
 		return nil, fmt.Errorf("file size %d is not aligned to page size %d", fileSize, PageSize)
 	}
 
-	dm.nextPage = PageID(fileSize / PageSize)
+	dm.nextPage.Store(uint64(fileSize / PageSize))
 
 	return dm, nil
 }
@@ -51,12 +52,12 @@ func (dm *diskManager) AllocatePage(ctx context.Context) (PageID, error) {
 	dm.mtx.Lock()
 	defer dm.mtx.Unlock()
 
-	nextPage := dm.nextPage
+	nextPage := PageID(dm.nextPage.Load())
 	bufWithZeroBytes := bytes.Repeat([]byte{0}, PageSize)
 	if err := dm.writePage(nextPage, bufWithZeroBytes); err != nil {
 		return 0, fmt.Errorf("failed to allocate page: %w", err)
 	}
-	dm.nextPage++
+	dm.nextPage.Add(1)
 
 	return nextPage, nil
 }
@@ -65,8 +66,9 @@ func (dm *diskManager) ReadPage(ctx context.Context, pageID PageID, p []byte) er
 	if len(p) != PageSize {
 		return fmt.Errorf("invalid page size: got %d, want %d", len(p), PageSize)
 	}
-	if pageID >= dm.nextPage {
-		return fmt.Errorf("pageID %d out of bounds (lastPage: %d)", pageID, dm.nextPage-1)
+	nextPage := PageID(dm.nextPage.Load())
+	if pageID >= nextPage {
+		return fmt.Errorf("pageID %d out of bounds (lastPage: %d)", pageID, nextPage-1)
 	}
 	_, err := dm.file.ReadAt(p, dm.calculateOffsetByPageID(pageID))
 	if err != nil {
@@ -79,8 +81,9 @@ func (dm *diskManager) WritePage(ctx context.Context, pageID PageID, p []byte) e
 	if len(p) != PageSize {
 		return fmt.Errorf("invalid page size: got %d, want %d", len(p), PageSize)
 	}
-	if pageID >= dm.nextPage {
-		return fmt.Errorf("pageID %d out of bounds (lastPage: %d)", pageID, dm.nextPage-1)
+	nextPage := PageID(dm.nextPage.Load())
+	if pageID >= nextPage {
+		return fmt.Errorf("pageID %d out of bounds (lastPage: %d)", pageID, nextPage-1)
 	}
 	err := dm.writePage(pageID, p)
 	if err != nil {
