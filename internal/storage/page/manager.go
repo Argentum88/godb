@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"sync/atomic"
+	"sync"
 )
 
 const PageSize = 4 * 1024 // 4KB
@@ -15,14 +15,15 @@ type PageID uint64
 type Manager interface {
 	AllocatePage(ctx context.Context) (PageID, error) // Расширить файл и выделить новую страницу
 	ReadPage(ctx context.Context, pageID PageID, p []byte) error
-    WritePage(ctx context.Context, pageID PageID, p []byte) error
-    Sync(ctx context.Context) error // Принудительно сбросить буферы на диск
-    Close(ctx context.Context) error // Закрыть менеджер и освободить ресурсы
+	WritePage(ctx context.Context, pageID PageID, p []byte) error
+	Sync(ctx context.Context) error  // Принудительно сбросить буферы на диск
+	Close(ctx context.Context) error // Закрыть менеджер и освободить ресурсы
 }
 
 type diskManager struct {
-	file    *os.File
-	nextPage atomic.Uint64
+	file     *os.File
+	nextPage PageID
+	mtx      sync.RWMutex
 }
 
 func NewDiskManager(ctx context.Context, filePath string) (*diskManager, error) {
@@ -36,23 +37,26 @@ func NewDiskManager(ctx context.Context, filePath string) (*diskManager, error) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file size: %w", err)
 	}
-	
+
 	if (fileSize % PageSize) != 0 {
 		return nil, fmt.Errorf("file size %d is not aligned to page size %d", fileSize, PageSize)
 	}
 
-	dm.nextPage.Store(uint64(fileSize / PageSize))
+	dm.nextPage = PageID(fileSize / PageSize)
 
 	return dm, nil
 }
 
 func (dm *diskManager) AllocatePage(ctx context.Context) (PageID, error) {
-	futureNextPage := PageID(dm.nextPage.Add(1))
-	nextPage := futureNextPage - 1
+	dm.mtx.Lock()
+	defer dm.mtx.Unlock()
+
+	nextPage := dm.nextPage
 	bufWithZeroBytes := bytes.Repeat([]byte{0}, PageSize)
 	if err := dm.writePage(nextPage, bufWithZeroBytes); err != nil {
 		return 0, fmt.Errorf("failed to allocate page: %w", err)
 	}
+	dm.nextPage++
 
 	return nextPage, nil
 }
@@ -61,10 +65,14 @@ func (dm *diskManager) ReadPage(ctx context.Context, pageID PageID, p []byte) er
 	if len(p) != PageSize {
 		return fmt.Errorf("invalid page size: got %d, want %d", len(p), PageSize)
 	}
-	nextPage := PageID(dm.nextPage.Load())
+
+	dm.mtx.RLock()
+	nextPage := dm.nextPage
+	dm.mtx.RUnlock()
 	if pageID >= nextPage {
 		return fmt.Errorf("pageID %d out of bounds (lastPage: %d)", pageID, nextPage-1)
 	}
+
 	_, err := dm.file.ReadAt(p, dm.calculateOffsetByPageID(pageID))
 	if err != nil {
 		return fmt.Errorf("failed to read page %d: %w", pageID, err)
@@ -76,10 +84,14 @@ func (dm *diskManager) WritePage(ctx context.Context, pageID PageID, p []byte) e
 	if len(p) != PageSize {
 		return fmt.Errorf("invalid page size: got %d, want %d", len(p), PageSize)
 	}
-	nextPage := PageID(dm.nextPage.Load())
+
+	dm.mtx.RLock()
+	nextPage := dm.nextPage
+	dm.mtx.RUnlock()
 	if pageID >= nextPage {
 		return fmt.Errorf("pageID %d out of bounds (lastPage: %d)", pageID, nextPage-1)
 	}
+
 	err := dm.writePage(pageID, p)
 	if err != nil {
 		return fmt.Errorf("failed to write page %d: %w", pageID, err)
