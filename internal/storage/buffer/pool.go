@@ -59,7 +59,9 @@ func (p *pagePin) Bytes() []byte {
 // MarkDirty помечает страницу как измененную (грязную).
 // Это означает, что перед выгрузкой страницы на диск ее содержимое должно быть записано.
 func (p *pagePin) MarkDirty() {
+	p.pool.mu.Lock()
 	p.pool.frames[p.frameID].dirty = true
+	p.pool.mu.Unlock()
 }
 
 // Unpin снимает закрепление страницы в буферном пуле.
@@ -202,6 +204,14 @@ func (p *pool) FetchPage(ctx context.Context, pageID page.PageID, mode LatchMode
 }
 
 func (p *pool) FlushAllPages(ctx context.Context) error {
+	// Держим блокировку пула на всё время флаша для простоты и корректности.
+	// Это блокирует другие операции с пулом (Fetch, NewPage, Unpin, MarkDirty),
+	// но гарантирует атомарный снимок dirty-страниц.
+	// TODO: В будущем (после реализации WAL) можно оптимизировать:
+	// собрать список dirty-страниц под блокировкой, затем писать их без блокировки.
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	for i := range p.frames {
 		if p.frames[i].dirty {
 			if err := p.pm.WritePage(ctx, p.frames[i].pageID, p.frames[i].data); err != nil {
