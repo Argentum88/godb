@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Argentum88/godb/internal/storage/page"
@@ -209,7 +210,6 @@ func TestPool_ConcurrentExclusiveAccess(t *testing.T) {
 
 	// Счетчик для проверки эксклюзивности
 	var activeWriters int32
-	var mu sync.Mutex
 
 	var wg sync.WaitGroup
 
@@ -226,10 +226,7 @@ func TestPool_ConcurrentExclusiveAccess(t *testing.T) {
 			}
 
 			// Проверяем, что мы единственные
-			mu.Lock()
-			activeWriters++
-			current := activeWriters
-			mu.Unlock()
+			current := atomic.AddInt32(&activeWriters, 1)
 
 			if current != 1 {
 				t.Errorf("writer %d: expected 1 active writer, got %d", id, current)
@@ -240,9 +237,7 @@ func TestPool_ConcurrentExclusiveAccess(t *testing.T) {
 			pin.MarkDirty()
 
 			// Освобождаем
-			mu.Lock()
-			activeWriters--
-			mu.Unlock()
+			atomic.AddInt32(&activeWriters, -1)
 
 			pin.Unpin()
 		}(i)

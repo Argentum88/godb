@@ -204,6 +204,11 @@ func (p *pool) FetchPage(ctx context.Context, pageID page.PageID, mode LatchMode
 }
 
 func (p *pool) FlushAllPages(ctx context.Context) error {
+	// Держим блокировку пула на всё время флаша для простоты и корректности.
+	// Это блокирует другие операции с пулом (Fetch, NewPage, Unpin, MarkDirty),
+	// но гарантирует атомарный снимок dirty-страниц.
+	// TODO: В будущем (после реализации WAL) можно оптимизировать:
+	// собрать список dirty-страниц под блокировкой, затем писать их без блокировки.
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
