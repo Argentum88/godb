@@ -49,7 +49,7 @@ type pagePin struct {
 	pageID     page.PageID
 	frameID    frameID
 	mode       LatchMode
-	pool       *pool
+	pool       *Pool
 	isUnpinned atomic.Bool
 }
 
@@ -97,7 +97,7 @@ func (p *pagePin) Unpin() {
 	p.pool.mu.Unlock()
 }
 
-type pool struct {
+type Pool struct {
 	pageToFrameMap map[page.PageID]frameID
 	frames         []frame
 	freeFrameIDs   []frameID
@@ -106,7 +106,7 @@ type pool struct {
 	mu             sync.Mutex
 }
 
-func NewPool(replacer replacer, pm page.Manager, size int) *pool {
+func NewPool(replacer replacer, pm page.Manager, size int) *Pool {
 	// Инициализация фреймов и свободных frameID
 	frames := make([]frame, size)
 	freeFrameIDs := make([]frameID, size)
@@ -119,7 +119,7 @@ func NewPool(replacer replacer, pm page.Manager, size int) *pool {
 		freeFrameIDs[i] = frameID(i)
 	}
 
-	return &pool{
+	return &Pool{
 		frames:         frames,
 		freeFrameIDs:   freeFrameIDs,
 		pageToFrameMap: make(map[page.PageID]frameID, size),
@@ -129,7 +129,7 @@ func NewPool(replacer replacer, pm page.Manager, size int) *pool {
 }
 
 // NewPage создает новую страницу, выделяя для нее место на диске и в пуле.
-func (p *pool) NewPage(ctx context.Context) (*pagePin, error) {
+func (p *Pool) NewPage(ctx context.Context) (*pagePin, error) {
 	p.mu.Lock()
 	freeFrame, err := p.findFreeFrame(ctx)
 	if err != nil {
@@ -161,7 +161,7 @@ func (p *pool) NewPage(ctx context.Context) (*pagePin, error) {
 
 // FetchPage извлекает страницу из буферного пула.
 // Если страницы нет в пуле, он загружает ее с диска.
-func (p *pool) FetchPage(ctx context.Context, pageID page.PageID, mode LatchMode) (*pagePin, error) {
+func (p *Pool) FetchPage(ctx context.Context, pageID page.PageID, mode LatchMode) (*pagePin, error) {
 	p.mu.Lock()
 	if frameID, ok := p.pageToFrameMap[pageID]; ok {
 		p.frames[frameID].pinCount++
@@ -211,7 +211,7 @@ func (p *pool) FetchPage(ctx context.Context, pageID page.PageID, mode LatchMode
 	}, nil
 }
 
-func (p *pool) FlushAllPages(ctx context.Context) error {
+func (p *Pool) FlushAllPages(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -227,7 +227,7 @@ func (p *pool) FlushAllPages(ctx context.Context) error {
 	return nil
 }
 
-func (p *pool) Close(ctx context.Context) error {
+func (p *Pool) Close(ctx context.Context) error {
 	err := p.FlushAllPages(ctx)
 	if err != nil {
 		return err
@@ -246,7 +246,7 @@ func (p *pool) Close(ctx context.Context) error {
 	return nil
 }
 
-func (p *pool) findFreeFrame(ctx context.Context) (*frame, error) {
+func (p *Pool) findFreeFrame(ctx context.Context) (*frame, error) {
 	lenFreeFrameIDs := len(p.freeFrameIDs)
 	if lenFreeFrameIDs > 0 {
 		freeFrameID := p.freeFrameIDs[lenFreeFrameIDs-1]
